@@ -2,8 +2,9 @@ module loadforge-agent
 
 go 1.24.5
 
+require github.com/getkin/kin-openapi v0.133.0
+
 require (
-	github.com/getkin/kin-openapi v0.133.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
