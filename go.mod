@@ -1,6 +1,6 @@
 module loadforge-agent
 
-go 1.24.5
+go 1.26
 
 require (
 	github.com/getkin/kin-openapi v0.133.0
