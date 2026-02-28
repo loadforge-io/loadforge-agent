@@ -36,7 +36,7 @@ func substitute(s string, vars map[string]string) (string, error) {
 	return result, nil
 }
 
-// ApplyToURL substitutes variables in a URL path string (e.g. "/users/${user_id}").
+// ApplyToURL substitutes variables in a URL path string.
 func (s *Substitutor) ApplyToURL(url string, vars map[string]string) (string, error) {
 	result, err := substitute(url, vars)
 	if err != nil {
@@ -85,6 +85,15 @@ func (s *Substitutor) ApplyToBody(body interface{}, vars map[string]string) (int
 		return result, nil
 	}
 
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("body marshalling failed: %w", err)
+	}
+
+	if !varPattern.Match(raw) {
+		return body, nil
+	}
+
 	jsonVars := make(map[string]string, len(vars))
 	for k, v := range vars {
 		escaped, err := json.Marshal(v)
@@ -94,18 +103,15 @@ func (s *Substitutor) ApplyToBody(body interface{}, vars map[string]string) (int
 		jsonVars[k] = string(escaped[1 : len(escaped)-1])
 	}
 
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("body marshalling failed: %w", err)
-	}
-
 	substituted, err := substitute(string(raw), jsonVars)
 	if err != nil {
 		return nil, fmt.Errorf("body substitution failed: %w", err)
 	}
 
+	dec := json.NewDecoder(strings.NewReader(substituted))
+	dec.UseNumber()
 	var result interface{}
-	if err := json.Unmarshal([]byte(substituted), &result); err != nil {
+	if err := dec.Decode(&result); err != nil {
 		return nil, fmt.Errorf("body unmarshalling after substitution failed: %w", err)
 	}
 	return result, nil

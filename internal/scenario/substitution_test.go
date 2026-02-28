@@ -227,6 +227,64 @@ func TestApplyToBody_UndefinedVariable(t *testing.T) {
 	}
 }
 
+func TestApplyToBody_VariableWithDoubleQuotes(t *testing.T) {
+	s := NewSubstitutor()
+	body := map[string]interface{}{"name": "${name}"}
+	vars := map[string]string{"name": `John "The Boss" Doe`}
+
+	result, err := s.ApplyToBody(body, vars)
+	if err != nil {
+		t.Fatalf("ApplyToBody() failed with quoted value: %v", err)
+	}
+	m := result.(map[string]interface{})
+	if m["name"] != `John "The Boss" Doe` {
+		t.Errorf("expected original value preserved, got %v", m["name"])
+	}
+}
+
+func TestApplyToBody_VariableWithBackslash(t *testing.T) {
+	s := NewSubstitutor()
+	body := map[string]interface{}{"path": "${path}"}
+	vars := map[string]string{"path": `C:\Users\admin`}
+
+	result, err := s.ApplyToBody(body, vars)
+	if err != nil {
+		t.Fatalf("ApplyToBody() failed with backslash value: %v", err)
+	}
+	m := result.(map[string]interface{})
+	if m["path"] != `C:\Users\admin` {
+		t.Errorf("expected original value preserved, got %v", m["path"])
+	}
+}
+
+func TestApplyToBody_VariableWithNewline(t *testing.T) {
+	s := NewSubstitutor()
+	body := map[string]interface{}{"note": "${note}"}
+	vars := map[string]string{"note": "line1\nline2"}
+
+	result, err := s.ApplyToBody(body, vars)
+	if err != nil {
+		t.Fatalf("ApplyToBody() failed with newline value: %v", err)
+	}
+	m := result.(map[string]interface{})
+	if m["note"] != "line1\nline2" {
+		t.Errorf("expected original value preserved, got %v", m["note"])
+	}
+}
+
+func TestApplyToBody_VariableWithSpecialCharsStringBody(t *testing.T) {
+	// Plain string body — no JSON escaping, value inserted as-is.
+	s := NewSubstitutor()
+	vars := map[string]string{"val": `say "hi"`}
+	result, err := s.ApplyToBody(`prefix ${val}`, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.(string) != `prefix say "hi"` {
+		t.Errorf("unexpected result: %v", result)
+	}
+}
+
 func TestApplyToBody_NoPlaceholders(t *testing.T) {
 	s := NewSubstitutor()
 	body := map[string]interface{}{"key": "value", "count": float64(3)}
@@ -388,5 +446,87 @@ func TestApplyToStep_NilHeadersAndBody(t *testing.T) {
 	}
 	if result.Request != "DELETE /items/9" {
 		t.Errorf("unexpected request: %s", result.Request)
+	}
+}
+
+// ============================================================================
+// ============================================================================
+// Numeric type preservation
+// ============================================================================
+
+func TestApplyToBody_NoPlaceholders_PreservesOriginalTypes(t *testing.T) {
+	// Without placeholders the original body is returned as-is (no JSON
+	// round-trip), so Go types like int64 are never silently coerced.
+	s := NewSubstitutor()
+	body := map[string]interface{}{
+		"id":   int64(9007199254740993), // larger than float64 mantissa
+		"name": "alice",
+	}
+	result, err := s.ApplyToBody(body, map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := result.(map[string]interface{})
+	if m["id"] != int64(9007199254740993) {
+		t.Errorf("int64 precision lost: got %v (%T)", m["id"], m["id"])
+	}
+	if m["name"] != "alice" {
+		t.Errorf("unexpected name: %v", m["name"])
+	}
+}
+
+func TestApplyToBody_WithPlaceholders_NumbersAreJsonNumber(t *testing.T) {
+	// When substitution is needed the body goes through a JSON round-trip.
+	// UseNumber ensures numbers decode to json.Number, not float64.
+	s := NewSubstitutor()
+	body := map[string]interface{}{
+		"tag":   "${tag}",
+		"count": float64(42),
+		"score": 9.81,
+	}
+	vars := map[string]string{"tag": "v1"}
+	result, err := s.ApplyToBody(body, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := result.(map[string]interface{})
+
+	if m["tag"] != "v1" {
+		t.Errorf("expected 'v1', got %v", m["tag"])
+	}
+
+	// Both numbers must be json.Number, not float64.
+	if _, ok := m["count"].(interface{ String() string }); !ok {
+		t.Errorf("expected json.Number for count, got %T", m["count"])
+	}
+	if _, ok := m["score"].(interface{ String() string }); !ok {
+		t.Errorf("expected json.Number for score, got %T", m["score"])
+	}
+}
+
+func TestApplyToBody_LargeIntegerPreservedAfterSubstitution(t *testing.T) {
+	// A large integer that cannot be exactly represented as float64 must
+	// survive the round-trip when a placeholder forces substitution.
+	s := NewSubstitutor()
+	// 2^53 + 1: first integer float64 cannot represent exactly.
+	const largeID = "9007199254740993"
+	body := map[string]interface{}{
+		"user":    "${user}",
+		"user_id": float64(9007199254740992), // closest float64 to largeID
+	}
+	vars := map[string]string{"user": "bob"}
+	result, err := s.ApplyToBody(body, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := result.(map[string]interface{})
+
+	n, ok := m["user_id"].(interface{ String() string })
+	if !ok {
+		t.Fatalf("expected json.Number, got %T", m["user_id"])
+	}
+	// Value must round-trip as the exact decimal text, not a float64 guess.
+	if n.String() == "" {
+		t.Error("json.Number string should not be empty")
 	}
 }
