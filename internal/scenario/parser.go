@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -53,6 +54,8 @@ func (s *Scenario) FindStep(request string) *Step {
 	}
 	return nil
 }
+
+const maxDelay = 10 * time.Minute
 
 func (p *Parser) Validate() error {
 	if p.scenario == nil {
@@ -108,6 +111,14 @@ func (p *Parser) Validate() error {
 				i, step.Request)
 		}
 
+		if step.Delay.Duration < 0 {
+			return fmt.Errorf("step[%d] (%s): delay must be non-negative", i, step.Request)
+		}
+
+		if step.Delay.Duration > maxDelay {
+			return fmt.Errorf("step[%d] (%s): delay must not exceed %s", i, step.Request, maxDelay)
+		}
+
 		for j := range step.NextSteps {
 			nextStep := &step.NextSteps[j]
 
@@ -158,7 +169,6 @@ func parseRequest(request string) (method string, path string, err error) {
 	method = parts[0]
 	path = parts[1]
 
-	// Validate HTTP method
 	validMethods := []string{
 		http.MethodGet,
 		http.MethodPost,
