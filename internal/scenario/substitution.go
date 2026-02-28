@@ -8,7 +8,7 @@ import (
 )
 
 // varPattern matches ${varName} placeholders.
-var varPattern = regexp.MustCompile(`\$\{([^}]+)}`)
+var varPattern = regexp.MustCompile(`\${([^}]+)}`)
 
 type Substitutor struct{}
 
@@ -85,12 +85,21 @@ func (s *Substitutor) ApplyToBody(body interface{}, vars map[string]string) (int
 		return result, nil
 	}
 
+	jsonVars := make(map[string]string, len(vars))
+	for k, v := range vars {
+		escaped, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to JSON-escape variable %q: %w", k, err)
+		}
+		jsonVars[k] = string(escaped[1 : len(escaped)-1])
+	}
+
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("body marshalling failed: %w", err)
 	}
 
-	substituted, err := substitute(string(raw), vars)
+	substituted, err := substitute(string(raw), jsonVars)
 	if err != nil {
 		return nil, fmt.Errorf("body substitution failed: %w", err)
 	}
